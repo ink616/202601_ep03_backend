@@ -72,7 +72,7 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: maven
+          cache: gradle  
 
       - name: Dar permisos al gradlew
         run: chmod +x gradlew
