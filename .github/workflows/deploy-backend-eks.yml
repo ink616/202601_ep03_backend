@@ -7,9 +7,9 @@ on:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPO_BACKEND: ep03-backend
-  K8S_NAMESPACE: ep03
-  DEPLOYMENT_NAME: ep03-backend
+  ECR_REPO_BACKEND: tienda-backend
+  K8S_NAMESPACE: tienda 
+  DEPLOYMENT_NAME: tienda-backend 
   SONAR_ORGANIZATION: mauriciovelasquezduoc
   SONAR_PROJECT_KEY: mauriciovelasquezduoc_202601_ep03_backend
 
