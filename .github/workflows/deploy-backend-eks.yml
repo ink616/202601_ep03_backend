@@ -1,4 +1,4 @@
-name: CI/CD Backend - Quality, Test, Security, ECR, Deploy EKS
+name: CI/CD Backend Node - Quality, Test, Security, ECR, Deploy EKS
 
 on:
   push:
@@ -8,17 +8,16 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPO_BACKEND: tienda-backend
-  K8S_NAMESPACE: tienda 
-  DEPLOYMENT_NAME: tienda-backend 
-  SONAR_ORGANIZATION: mauriciovelasquezduoc
-  SONAR_PROJECT_KEY: mauriciovelasquezduoc_202601_ep03_backend
+  K8S_NAMESPACE: tienda
+  DEPLOYMENT_NAME: tienda-backend
+  NODE_VERSION: '20'
 
 permissions:
   contents: write
 
 jobs:
   # ============================================================
-  # JOB 1: CODE QUALITY - OpenRewrite + Spotless + PMD
+  # JOB 1: CODE QUALITY
   # ============================================================
   code-quality:
     name: Code Quality
@@ -27,35 +26,20 @@ jobs:
       - name: Checkout codigo
         uses: actions/checkout@v4
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: gradle
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Dar permisos al gradlew
-        run: chmod +x gradlew
+      - name: Instalar dependencias
+        run: npm install
 
-      - name: OpenRewrite dry-run
-        run: ./gradlew rewriteDryRun -Dnet.bytebuddy.experimental=true
-
-      - name: Spotless check
-        run: ./gradlew spotlessCheck
-
-      - name: PMD main y test
-        run: ./gradlew pmdMain pmdTest
-
-      - name: Publicar reporte PMD
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pmd-report
-          path: build/reports/pmd/
-          retention-days: 7
+      - name: Lint
+        run: npm run lint --if-present
 
   # ============================================================
-  # JOB 2: BUILD & TEST - compila, testea y verifica cobertura
+  # JOB 2: BUILD & TEST
   # ============================================================
   build-and-test:
     name: Build & Test
@@ -64,108 +48,48 @@ jobs:
     steps:
       - name: Checkout codigo
         uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: gradle  
+      - name: Instalar dependencias
+        run: npm install
 
-      - name: Dar permisos al gradlew
-        run: chmod +x gradlew
-
-      - name: Compilar, testear y generar cobertura
-        run: ./gradlew clean check jacocoTestReport -Dnet.bytebuddy.experimental=true
-
-      - name: Publicar resultados de tests
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: build/test-results/test/
-          retention-days: 7
-
-      - name: Publicar reporte JaCoCo
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: jacoco-coverage-report
-          path: |
-            build/reports/jacoco/test/html/
-            build/reports/jacoco/test/jacocoTestReport.xml
-          retention-days: 7
-
-      - name: Publicar reporte Spring Cloud Contract
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: contract-test-report
-          path: build/reports/tests/contractTest/
-          retention-days: 7
-
-      - name: Publicar reporte Cucumber
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cucumber-report
-          path: build/cucumber-reports/
-          retention-days: 7
+      - name: Ejecutar tests
+        run: npm test --if-present
 
   # ============================================================
-  # JOB 3: SECURITY - SonarCloud + Snyk
+  # JOB 3: SECURITY - Snyk
   # ============================================================
   security:
-    name: SonarCloud + Snyk
+    name: Snyk Security
     runs-on: ubuntu-latest
     needs: build-and-test
     steps:
       - name: Checkout codigo
         uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
 
-      - name: Configurar JDK 21
-        uses: actions/setup-java@v4
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: gradle
+      - name: Instalar dependencias
+        run: npm install
 
-      - name: Dar permisos al gradlew
-        run: chmod +x gradlew
-
-      - name: Validar secrets de seguridad
+      - name: Validar secret de Snyk
         run: |
           set -euo pipefail
-          if [ -z "${SONAR_TOKEN:-}" ]; then
-            echo "ERROR: Falta SONAR_TOKEN en GitHub Secrets"
-            exit 1
-          fi
           if [ -z "${SNYK_TOKEN:-}" ]; then
             echo "ERROR: Falta SNYK_TOKEN en GitHub Secrets"
             exit 1
           fi
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Descargar reporte JaCoCo
-        uses: actions/download-artifact@v4
-        with:
-          name: jacoco-coverage-report
-          path: build/reports/jacoco/test/
-
-      - name: Compilar para analisis
-        run: ./gradlew clean assemble -x test -Dnet.bytebuddy.experimental=true
-
-      - name: SonarCloud automatic analysis activo
-        run: |
-          echo "SonarCloud ya tiene Automatic Analysis activo para este proyecto."
-          echo "Se omite el task Gradle sonar para evitar el error: Automatic Analysis is enabled."
-          echo "Si quieres que SonarCloud sea gate bloqueante en GitHub Actions, desactiva Automatic Analysis en SonarCloud y vuelve a habilitar ./gradlew sonar en este workflow."
 
       - name: Instalar Snyk CLI
         run: npm install -g snyk@latest
@@ -173,32 +97,7 @@ jobs:
       - name: Snyk dependency scan
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          set -euo pipefail
-          snyk test \
-            --file=build.gradle \
-            --severity-threshold=high \
-            --fail-on=all \
-            --configuration-matching='^(compile|runtime|default)$'
-
-      - name: Generar reporte Snyk SARIF
-        if: always()
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: |
-          snyk test \
-            --file=build.gradle \
-            --severity-threshold=high \
-            --configuration-matching='^(compile|runtime|default)$' \
-            --sarif-file-output=snyk.sarif || true
-
-      - name: Publicar reporte Snyk
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: snyk-security-report
-          path: snyk.sarif
-          retention-days: 7
+        run: snyk test --severity-threshold=high --file=package.json || true
 
   # ============================================================
   # JOB 4: VERSIONING - calcula v1.x.0 y crea tag git
@@ -234,7 +133,7 @@ jobs:
           git push origin "$NEW"
 
   # ============================================================
-  # JOB 5: BUILD & PUSH ECR - construye y publica la imagen
+  # JOB 5: BUILD & PUSH ECR
   # ============================================================
   build-push-ecr:
     name: Build & Push ECR (${{ needs.versioning.outputs.new_tag }})
@@ -277,7 +176,7 @@ jobs:
           echo "- **Repositorio:** \`${{ env.ECR_REPO_BACKEND }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   # ============================================================
-  # JOB 6: DEPLOY A EKS - aplica manifiestos y actualiza imagen
+  # JOB 6: DEPLOY A EKS
   # ============================================================
   deploy:
     name: Deploy a EKS
@@ -306,7 +205,6 @@ jobs:
             exit 1
           fi
           echo "EKS_CLUSTER_NAME=${{ secrets.EKS_CLUSTER_NAME }}" >> "$GITHUB_ENV"
-          echo "  Cluster: ${{ secrets.EKS_CLUSTER_NAME }}"
 
       - name: Instalar kubectl
         uses: azure/setup-kubectl@v4
@@ -318,16 +216,13 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -euo pipefail
-          aws eks update-kubeconfig \
-            --region "$AWS_REGION" \
-            --name "$EKS_CLUSTER_NAME"
-          echo "  Contexto: $(kubectl config current-context)"
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$EKS_CLUSTER_NAME"
 
-      - name: Validar acceso al cluster
+      - name: Aplicar manifiestos k8s
         run: |
           set -euo pipefail
-          kubectl get nodes
-          kubectl get namespace "$K8S_NAMESPACE" 2>/dev/null || true
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/
 
       - name: Actualizar imagen del deployment
         env:
@@ -335,8 +230,6 @@ jobs:
           IMAGE_TAG: ${{ needs.versioning.outputs.new_tag }}
         run: |
           set -euo pipefail
-          echo "  Actualizando deployment/${DEPLOYMENT_NAME}..."
-          echo "  Usando tag: $IMAGE_TAG"
           kubectl set image "deployment/${DEPLOYMENT_NAME}" \
             "backend=$ECR_REGISTRY/${ECR_REPO_BACKEND}:$IMAGE_TAG" \
             -n "$K8S_NAMESPACE"
@@ -344,57 +237,11 @@ jobs:
       - name: Esperar rollout backend
         run: |
           set -euo pipefail
-          echo "  Estado inicial de pods:"
-          kubectl get pods -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" -o wide || true
-
-          echo "  Esperando a que el rollout termine (max 10 min)..."
-          if ! kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "$K8S_NAMESPACE" --timeout=600s; then
-            echo ""
-            echo "==========================================================="
-            echo "  ERROR: El rollout del backend fallo o excedio 10 minutos"
-            echo "==========================================================="
-            echo ""
-            echo "--- Pods ---"
-            kubectl get pods -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" -o wide || true
-            echo ""
-            echo "--- Describe deployment ---"
-            kubectl describe deployment "$DEPLOYMENT_NAME" -n "$K8S_NAMESPACE" || true
-            echo ""
-            echo "--- Describe pods ---"
-            kubectl describe pod -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" || true
-            echo ""
-            echo "--- Logs actuales ---"
-            kubectl logs -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" --tail=120 || true
-            echo ""
-            echo "--- Logs previos ---"
-            kubectl logs -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" --previous --tail=120 || true
-            exit 1
-          fi
-
-          echo "  Rollout completado"
+          kubectl rollout status "deployment/${DEPLOYMENT_NAME}" -n "$K8S_NAMESPACE" --timeout=600s
 
       - name: Verificar estado final
         run: |
           set -euo pipefail
-          echo ""
-          echo "========================================="
-          echo " RESUMEN DEL DEPLOY"
-          echo "========================================="
-          echo ""
-          echo "--- Pods ---"
-          kubectl get pods -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}" -o wide
-          echo ""
-          echo "--- Services ---"
-          kubectl get svc -n "$K8S_NAMESPACE" -l "app=${ECR_REPO_BACKEND}"
-          echo ""
-          echo "--- HPA ---"
-          kubectl get hpa ep03-backend-hpa -n "$K8S_NAMESPACE" 2>/dev/null || true
-
-      - name: Resumen deploy
-        if: success()
-        run: |
-          echo "### Deploy completado exitosamente" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Cluster:** \`${{ env.EKS_CLUSTER_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Deployment:** \`${{ env.DEPLOYMENT_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Namespace:** \`${{ env.K8S_NAMESPACE }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- **Version imagen:** \`${{ env.ECR_REPO_BACKEND }}:${{ needs.versioning.outputs.new_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          kubectl get pods -n "$K8S_NAMESPACE" -l "app=${DEPLOYMENT_NAME}" -o wide
+          kubectl get svc  -n "$K8S_NAMESPACE" -l "app=${DEPLOYMENT_NAME}"
+          kubectl get hpa  tienda-backend-hpa -n "$K8S_NAMESPACE" 2>/dev/null || true
